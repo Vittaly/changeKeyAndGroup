@@ -66,10 +66,12 @@ def deleteDuplicateID(p_conn, p_tab_name):
   cur.execute('delete distinctrow c.*  from {0} c inner join  (select id from {0} group by id having count(*) > 1) d on c.id = d.id'.format(p_tab_name))
   p_conn.commit()
 
+def addPK(p_conn, p_table = 'table1', p_fields = ['ID']):
+    p_conn.execute('alter table {0} ADD PRIMARY KEY ({1});'.format(p_table, ','.join(p_fields)))
 
 def table_struct_isCorrect(p_conn, p_table_name = 'table1'):
     try:
-        p_conn.execute('alter table {0} ADD PRIMARY KEY (ID);'.format(p_table_name))
+        addPK(p_conn, p_table_name)
     except Exception as pe:
         if pe.args[0] == "42S02":
            logger.error('Table {0} not exists in DB file'.format(p_table_name))
@@ -77,7 +79,7 @@ def table_struct_isCorrect(p_conn, p_table_name = 'table1'):
         elif type(pe) == pyodbc.Error and  pe.args[0] == "HY000":
             logger.info("PK is already exists. Error:{0}".format(pe.args[1]))
             return (True, pe.args[0])
-        elif type(pe) == pyodbc.Error and  pe.args[0] == "HY3022":
+        elif type(pe) == pyodbc.IntegrityError and  pe.args[0] == "23000":
             logger.error("Was found duplicated ID in table {0}. Original error: {1}".format(p_table_name, pe.args[1]))
             return (False, pe.args[0])
         else:
@@ -86,7 +88,7 @@ def table_struct_isCorrect(p_conn, p_table_name = 'table1'):
 
     p_conn.commit();
     logger.warn('PK was not exists. Created')
-    return True
+    return (True,)
 
 def get_table_rec_count(p_con, p_table_name = 'table1'):
     cur = p_con.cursor()
@@ -215,7 +217,7 @@ def checkTableInFile(p_db_file_fn, p_table_name = 'Table1', p_delete_duplicate =
         logger.error('error create conenct to access file {0}'.format(p_db_file_fn))
         return False
     check_result, err_code =  table_struct_isCorrect(connect, p_table_name)
-    if not check_result and err_code == "124" and p_delete_duplicate:
+    if not check_result and err_code == "23000" and p_delete_duplicate:
         deleteDuplicateID(connect, p_table_name)
         check_result, err_code =  table_struct_isCorrect(connect, p_table_name)
     connect.close()
@@ -235,33 +237,44 @@ def check_dirs():
 
 def process_mdb_file(p_mdb_file):
 
+    logger.info('start of processiong file {0}'.format(p_mdb_file))
     res_file_fn =  os.path.join(RES_DIR,p_mdb_file)
     copyfile(EMPTY_DB_FULL_FN, res_file_fn)
-
-    conn = open_access_conect(os.path.join(NEW_DIR,p_mdb_file))
-
+    logger.debug('created new empty file {0}'.format(res_file_fn))
+    conn = open_access_conect(CORRESPONDENCE_FILE_FN)
+    logger.debug('open connect to {0}'.format(CORRESPONDENCE_FILE_FN))
     cur = conn.cursor()
 
     sql = '''select id, a1 as valeur1, a2 as Valeur2, a3 as Valeur3, a4 as Valeur4, a5 as Valeur5, a6 as Valeur6
                into [MS Access; DATABASE={0};].table1
                from (select c.name as id, avg(valeur1) as a1, avg(valeur2) as a2, avg(valeur3) as a3, avg(valeur4) as a4, avg(valeur5) as a5, avg(valeur6) as a6
-                       from table1 t
-                        inner join [MS Access; DATABASE={1}].CORR1 c ON t.id = c.id
+                       from [MS Access; DATABASE={1}].table1 t
+                        inner join CORR1 c ON t.id = c.id
                         group by c.name
                         union all
                      select id, valeur1, valeur2, valeur3, valeur4, valeur5, valeur6
-                       from table1 t where not exists (select id from [MS Access; DATABASE={1}].CORR1 cc where cc.id = t.id)
-                        ) order by id'''.format(res_file_fn, CORRESPONDENCE_FILE_FN)
+                       from [MS Access; DATABASE={1}].table1 t where not exists (select id from CORR1 cc where cc.id = t.id)
+                        ) order by id'''.format(res_file_fn,  os.path.join(NEW_DIR, p_mdb_file))
 
     try:
+        logger.debug('start proccessing data ...')
         cur.execute(sql)
+        conn.commit()
     except Exception as e:
-        logger.error(e)
-    conn.commit()
+        logger.error('Error on data processing: {0}'.format(e))
+        conn.rollback()
+        logger.info('end of processiong file {0}'.format(p_mdb_file))
+        return()
 
-    test_conn =  open_access_conect(res_file_fn)
-    res = test_conn.cursor().execute('select count(*) from table1')
+
+    res_conn =  open_access_conect(res_file_fn)
+    res = res_conn.cursor().execute('select count(*) from table1').fetchval()
+    logger.info('was added {0} reords to file {1}'.format(res, res_file_fn))
     conn.close()
+    logger.info('Create PK for table1 in the file {0}'.format(res_file_fn))
+    addPK(res_conn)
+    res_conn.close()
+    logger.info('end of processiong file {0}'.format(p_mdb_file))
 
 
 
@@ -299,7 +312,7 @@ def main(argv):
         check_dirs()
         logger.info('Check Corresponndance db...')
 
-        if not checkTableInFile(CORRESPONDENCE_FILE_FN, CORRESPONDENCE_TABLE_NAME):
+        if not checkTableInFile(CORRESPONDENCE_FILE_FN, CORRESPONDENCE_TABLE_NAME, True):
             logger.error('Correct correspondation db file not found. Work break.')
             return 101
 
@@ -316,25 +329,39 @@ def main(argv):
         logger.info('Found {0} files'.format(len(new_files)))
 
 
+        #build maping
+##        KEY_MAP = {}
+##        con = open_access_conect(CORRESPONDENCE_FILE_FN)
+##        cur = con.cursor()
+##        cur.execute('select id, name from corr1')
+##        row = cur.fetchone()
+##        while row is not None:
+##            # do something
+##            KEY_MAP[row[0]] = row[1]
+##            row = cur.fetchone()
+##        con.close()
+
+
+
         for nf in new_files:
 
-            logFileNameff = os.path.join(BASE_DIR, nf + '.log')
-            hdlr2 = logging.FileHandler(logFileNameff)
-            hdlr2.setFormatter(formatter)
-            logger.addHandler(hdlr2)
 
-            logger.info('Start processing the file {0}'.format(nf))
+
 
             nf_fn = os.path.join(NEW_DIR, nf)
+
+            logger.info('Check the file: {0}'.format(nf))
 
             if checkTableInFile(nf_fn):
                 process_mdb_file(nf)
                 move(nf_fn, os.path.join(OLD_DIR, nf))
+                logger.debug('the file {0} moved to dir {0}'.format(OLD_DIR))
             else:
                 logger.error('file {0} if bad moving to dir {1}'.format(nf, BAD_DIR))
                 move(nf_fn, os.path.join(BAD_DIR, nf))
-            logger.info('End processing the file {0}'.format(nf))
-            logger.removeHandler(hdlr2)
+                logger.debug('the file {0} moved to dir {0}'.format(BAD_DIR))
+
+
 
         logger.info('No more files. Stoping...')
 
