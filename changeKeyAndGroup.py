@@ -69,6 +69,7 @@ def deleteDuplicateID(p_conn, p_tab_name):
 def addPK(p_conn, p_table = 'table1', p_fields = ['ID']):
     p_conn.execute('alter table {0} ADD PRIMARY KEY ({1});'.format(p_table, ','.join(p_fields)))
 
+
 def table_struct_isCorrect(p_conn, p_table_name = 'table1'):
     try:
         addPK(p_conn, p_table_name)
@@ -88,7 +89,7 @@ def table_struct_isCorrect(p_conn, p_table_name = 'table1'):
 
     p_conn.commit();
     logger.warn('PK was not exists. Created')
-    return (True,)
+    return (True, '')
 
 def get_table_rec_count(p_con, p_table_name = 'table1'):
     cur = p_con.cursor()
@@ -218,7 +219,10 @@ def checkTableInFile(p_db_file_fn, p_table_name = 'Table1', p_delete_duplicate =
         return False
     check_result, err_code =  table_struct_isCorrect(connect, p_table_name)
     if not check_result and err_code == "23000" and p_delete_duplicate:
+        logger.warn('duplicating records will be deleted from file {0}'.format(p_db_file_fn))
         deleteDuplicateID(connect, p_table_name)
+        logger.info('duplicating records was deleted.')
+        logger.info('Try create PK again')
         check_result, err_code =  table_struct_isCorrect(connect, p_table_name)
     connect.close()
     return  check_result
@@ -273,8 +277,27 @@ def process_mdb_file(p_mdb_file):
     conn.close()
     logger.info('Create PK for table1 in the file {0}'.format(res_file_fn))
     addPK(res_conn)
+    p_table = 'table1'
+    logger.info ('check pk in table table1...'.format(p_table))
+    pk_fond = False
+    itiswrong = False
+    try:
+        addPK(res_conn)
+        itiswrong = True # second attempt of creating a pk finished wo error
+    except Exception as pe:
+        if type(pe) == pyodbc.Error and  pe.args[0] == "HY000":
+            logger.info('PK for table {} found. Check complite'.format(p_table))
+            pk_fond = True
+    if not pk_fond:
+        logger.error('PK for table {} NOT found. Something wrong'.format(p_table))
+    if itiswrong:
+        logger.error('Something wrong: second attempt of creating a pk for {0} finished wo error'.format(p_table))
     res_conn.close()
     logger.info('end of processiong file {0}'.format(p_mdb_file))
+
+
+
+
 
 
 
