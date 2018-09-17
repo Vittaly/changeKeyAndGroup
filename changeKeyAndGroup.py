@@ -277,6 +277,7 @@ def process_mdb_file(p_mdb_file):
     conn.close()
     logger.info('Create PK for table1 in the file {0}'.format(res_file_fn))
     addPK(res_conn)
+    res_conn.commit()
     p_table = 'table1'
     logger.info ('check pk in table table1...'.format(p_table))
     pk_fond = False
