@@ -276,24 +276,14 @@ def process_mdb_file(p_mdb_file):
     logger.info('was added {0} reords to file {1}'.format(res, res_file_fn))
     conn.close()
     logger.info('Create PK for table1 in the file {0}'.format(res_file_fn))
-    addPK(res_conn)
-    res_conn.commit()
-    p_table = 'table1'
-    logger.info ('check pk in table table1...'.format(p_table))
-    pk_fond = False
-    itiswrong = False
     try:
         addPK(res_conn)
-        itiswrong = True # second attempt of creating a pk finished wo error
+        res_conn.commit()
     except Exception as pe:
         if type(pe) == pyodbc.Error and  pe.args[0] == "HY000":
             logger.info('PK for table {} found. Check complite'.format(p_table))
             pk_fond = True
-    if not pk_fond:
-        logger.error('PK for table {} NOT found. Something wrong'.format(p_table))
-    if itiswrong:
-        logger.error('Something wrong: second attempt of creating a pk for {0} finished wo error'.format(p_table))
-    res_conn.close()
+
     logger.info('end of processiong file {0}'.format(p_mdb_file))
 
 
