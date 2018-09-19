@@ -224,6 +224,8 @@ def checkTableInFile(p_db_file_fn, p_table_name = 'Table1', p_delete_duplicate =
         logger.info('duplicating records was deleted.')
         logger.info('Try create PK again')
         check_result, err_code =  table_struct_isCorrect(connect, p_table_name)
+    if p_table_name == 'Table1' and check_result:
+        check_result = checkOriginTable(connect)
     connect.close()
     return  check_result
 
@@ -237,12 +239,30 @@ def check_dirs():
             os.makedirs(dn)
 
 
+def checkOriginTable(p_conn):
 
+         cur = p_conn.cursor()
+
+         dataFields = ['valeur{0}'.format(i) for i in list(range(1,7))]
+         filter_sniplet =  ['{0} is not null and not IsNumeric({0})'.format(f) for f in dataFields]
+
+         sql = 'select * from table1 t where t.id not in (\'Flop_Turn_River_Hand\') and ({0})'.format(' or '.join(filter_sniplet))
+
+         cur.execute(sql)
+         FindBadRec = False
+
+         for row in cur.fetchall():
+            if not FindBadRec: FindBadRec = True
+            logger.error('find record with not number value: {}'.format(row))
+
+         return not FindBadRec
 
 def process_mdb_file(p_mdb_file):
 
     logger.info('start of processiong file {0}'.format(p_mdb_file))
     res_file_fn =  os.path.join(RES_DIR,p_mdb_file)
+
+
     copyfile(EMPTY_DB_FULL_FN, res_file_fn)
     logger.debug('created new empty file {0}'.format(res_file_fn))
     conn = open_access_conect(CORRESPONDENCE_FILE_FN)
@@ -260,6 +280,8 @@ def process_mdb_file(p_mdb_file):
                        from [MS Access; DATABASE={1}].table1 t where not exists (select id from CORR1 cc where cc.id = t.id)
                         ) order by id'''.format(res_file_fn,  os.path.join(NEW_DIR, p_mdb_file))
 
+
+
     try:
         logger.debug('start proccessing data ...')
         cur.execute(sql)
@@ -267,8 +289,10 @@ def process_mdb_file(p_mdb_file):
     except Exception as e:
         logger.error('Error on data processing: {0}'.format(e))
         conn.rollback()
+        conn.close()
+
         logger.info('end of processiong file {0}'.format(p_mdb_file))
-        return()
+        return False
 
 
     res_conn =  open_access_conect(res_file_fn)
@@ -282,9 +306,11 @@ def process_mdb_file(p_mdb_file):
     except Exception as pe:
         if type(pe) == pyodbc.Error and  pe.args[0] == "HY000":
             logger.info('PK for table {} found. Check complite'.format(p_table))
-            pk_fond = True
-
+        res_conn.close()
+    res_conn.close()
     logger.info('end of processiong file {0}'.format(p_mdb_file))
+
+    return True
 
 
 
@@ -358,10 +384,6 @@ def main(argv):
 
 
         for nf in new_files:
-
-
-
-
             nf_fn = os.path.join(NEW_DIR, nf)
 
             logger.info('Check the file: {0}'.format(nf))
