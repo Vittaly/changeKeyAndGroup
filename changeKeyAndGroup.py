@@ -39,6 +39,9 @@ CORRESPONDENCE_FILE = "Corrrespondance.accdb"
 CORRESPONDENCE_FILE_FN =  os.path.join(BASE_DIR, CORRESPONDENCE_FILE)
 CORRESPONDENCE_TABLE_NAME = 'CORR1'
 
+HEADER_IDS = ['Flop_hand', 'Flop_Turn_hand', 'Flop_Turn_River_hand']
+HEADER_IDS_SQL =', '.join(['\'{0}\''.format(id) for id in HEADER_IDS])
+
 
 appName = os.path.splitext(basename(__file__))[0]
 logger = logging.getLogger(appName)
@@ -223,8 +226,68 @@ def checkTableInFile(p_db_file_fn, p_table_name = 'Table1', p_delete_duplicate =
     connect.close()
     return  check_result
 
+def CheckPkInTable(p_conn, p_table_name = 'table1', p_pk_column = ['id']):
+    try:
+        addPK(p_conn, p_table_name, p_pk_column)
+    except Exception as pe:
+        if pe.args[0] == "42S02":
+           logger.error('Table {0} not exists in DB file'.format(p_table_name))
+           return 1
+        elif type(pe) == pyodbc.Error and  pe.args[0] == "HY000":
+            logger.info("PK is already exists. Error:{0}".format(pe.args[1]))
+            return 0
+        elif type(pe) == pyodbc.IntegrityError and  pe.args[0] == "23000":
+            logger.error("Was found duplicated ID in table {0}. Original error: {1}".format(p_table_name, pe.args[1]))
+            return 2
+        else:
+            logger.error(" Error:{0}".format(pe.args[1]))
+            return (False, pe.args[0])
+
+    p_conn.commit();
+    logger.warn('PK was not exists. Created')
+    return 0
+
+def checkOriginTable(p_conn):
+
+         cur = p_conn.cursor()
+
+         cnt = cur.execute('select count(*) from table1 where id in ({0})'.format(HEADER_IDS_SQL)).fetchval()
+         if cnt > 1:
+             logger.error('found more then one record with id: {}'.format(HEADER_IDS))
+             return False
 
 
+         dataFields = ['valeur{0}'.format(i) for i in list(range(1,7))]
+         filter_sniplet =  ['{0} is not null and (not IsNumeric({0}) or Instr({0}, \'-\') > 0)'.format(f) for f in dataFields]
+
+         sql = 'select * from table1 t where t.id not in ({1}) and ({0})'.format(' or '.join(filter_sniplet), HEADER_IDS_SQL)
+
+         cur.execute(sql)
+         FindBadRec = False
+
+         for row in cur.fetchall():
+            if not FindBadRec: FindBadRec = True
+            logger.error('find record with not number or negative value: {}'.format(row))
+
+         return not FindBadRec
+
+def checkDataInNewFile(p_db_file_fn):
+    table_name = 'Table1'
+    if not os.path.isfile(p_db_file_fn):
+        return False
+    try:
+        connect = open_access_conect(p_db_file_fn)
+    except Exception as e:
+        logger.error('error create conenct to access file {0}'.format(p_db_file_fn))
+        return False
+
+    if CheckPkInTable(connect, table_name) != 0:
+        connect.close()
+        return False
+
+    res =  checkOriginTable(connect)
+    connect.close()
+    return  res
 
 
 def check_dirs():
@@ -352,7 +415,7 @@ def main(argv):
 
             logger.info('Check the file: {0}'.format(nf))
 
-            if checkTableInFile(nf_fn):
+            if checkDataInNewFile(nf_fn):
                 process_mdb_file(nf)
                 move(nf_fn, os.path.join(OLD_DIR, nf))
                 logger.debug('the file {0} moved to dir {0}'.format(OLD_DIR))
