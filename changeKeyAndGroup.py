@@ -332,12 +332,15 @@ def process_mdb_file(p_mdb_file):
     logger.debug('open connect to {0}'.format(CORRESPONDENCE_FILE_FN))
     cur = conn.cursor()
 
-    sql = '''select id, a1 as valeur1, a2 as Valeur2, a3 as Valeur3, a4 as Valeur4, a5 as Valeur5, a6 as Valeur6
+    sql = '''  select *
                into [MS Access; DATABASE={0};].table1
-               from (select c.name as id, avg(valeur1) as a1, avg(valeur2) as a2, avg(valeur3) as a3, avg(valeur4) as a4, avg(valeur5) as a5, avg(valeur6) as a6
+               from (
+               select id, IIF(isNull(a1), null, cInt(a1)) as valeur1, IIF(isNull(a2), null, cInt(a2)) as Valeur2, IIF(isNull(a3), null, cInt(a3)) as Valeur3, IIF(isNull(a4), null, cInt(a4)) as Valeur4, IIF(isNull(a5), null, cInt(a5)) as Valeur5, IIF(isNull(a6), null, cInt(a6)) as Valeur6
+               from (
+               select c.name as id, avg(valeur1) as a1, avg(valeur2) as a2, avg(valeur3) as a3, avg(valeur4) as a4, avg(valeur5) as a5, avg(valeur6) as a6
                        from [MS Access; DATABASE={1}].table1 t
                         inner join CORR1 c ON t.id = c.id
-                        group by c.name
+                        group by c.name)
                         union all
                      select id, valeur1, valeur2, valeur3, valeur4, valeur5, valeur6
                        from [MS Access; DATABASE={1}].table1 t where not exists (select id from CORR1 cc where cc.id = t.id)
