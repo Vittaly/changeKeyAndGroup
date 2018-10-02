@@ -35,8 +35,9 @@ OLD_DIR  = os.path.join(BASE_DIR, "proccesed")
 BAD_DIR  = os.path.join(BASE_DIR, "bad")
 TEMP_DIR  = os.path.join(BASE_DIR, "temp")
 EMPTY_DB_FULL_FN = os.path.join(BASE_DIR, "empty_db_for_copy.mdb")
-CORRESPONDENCE_FILE = "Corrrespondance.accdb"
+CORRESPONDENCE_FILE = "Correspondance.accdb"
 CORRESPONDENCE_FILE_FN =  os.path.join(BASE_DIR, CORRESPONDENCE_FILE)
+CORRESPONDENCE_TMP_FILE_FN = os.path.join(TEMP_DIR, 'tmp_' + CORRESPONDENCE_FILE + '.mdb')
 CORRESPONDENCE_TABLE_NAME = 'CORR1'
 
 HEADER_IDS = ['Flop_hand', 'Flop_Turn_hand', 'Flop_Turn_River_hand']
@@ -66,7 +67,11 @@ def create_table(p_connect):
     #PRIMARY KEY
 def deleteDuplicateID(p_conn, p_tab_name):
   cur = p_conn.cursor()
-  cur.execute('delete distinctrow c.*  from {0} c inner join  (select id from {0} group by id having count(*) > 1) d on c.id = d.id'.format(p_tab_name))
+  copyfile(EMPTY_DB_FULL_FN, CORRESPONDENCE_TMP_FILE_FN)
+
+  cur.execute('select c.id, min(left(name,255)) as n into [MS Access;DATABASE={0}].corr_tmp  from {1} c group by id'.format(CORRESPONDENCE_TMP_FILE_FN,  p_tab_name))
+  cur.execute('drop table {0}'.format(p_tab_name))
+  cur.execute('select id, n as name into {0} from [MS Access;DATABASE={1}].corr_tmp'.format(p_tab_name, CORRESPONDENCE_TMP_FILE_FN))
   p_conn.commit()
 
 def addPK(p_conn, p_table = 'table1', p_fields = ['ID']):
@@ -220,6 +225,8 @@ def checkTableInFile(p_db_file_fn, p_table_name = 'Table1', p_delete_duplicate =
     except Exception as e:
         logger.error('error create conenct to access file {0}'.format(p_db_file_fn))
         return False
+
+
     check_result, err_code =  table_struct_isCorrect(connect, p_table_name)
     if not check_result and err_code == "23000" and p_delete_duplicate:
         logger.warn('duplicating records will be deleted from file {0}'.format(p_db_file_fn))
@@ -230,7 +237,11 @@ def checkTableInFile(p_db_file_fn, p_table_name = 'Table1', p_delete_duplicate =
     if p_table_name == 'Table1' and check_result:
         check_result = checkOriginTable(connect)
     connect.close()
+    if os.path.exists(CORRESPONDENCE_TMP_FILE_FN):
+        os.remove(CORRESPONDENCE_TMP_FILE_FN)
     return  check_result
+
+
 
 def CheckPkInTable(p_conn, p_table_name = 'table1', p_pk_column = ['id']):
     try:
